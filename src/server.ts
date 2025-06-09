@@ -1,8 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import express, { Request, Response } from "express";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { IncomingMessage, ServerResponse } from "http";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 import { YApiService } from "./services/yapi/api";
@@ -14,21 +11,17 @@ export class YapiMcpServer {
   private readonly yapiService: YApiService;
   private readonly projectInfoCache: ProjectInfoCache;
   private readonly logger: Logger;
-  private sseTransport: SSEServerTransport | null = null;
-  private readonly isStdioMode: boolean;
 
   constructor(yapiBaseUrl: string, yapiToken: string, yapiLogLevel: string = "info", yapiCacheTTL: number = 10) {
     this.logger = new Logger("YapiMCP", yapiLogLevel);
     this.yapiService = new YApiService(yapiBaseUrl, yapiToken, yapiLogLevel);
     this.projectInfoCache = new ProjectInfoCache(yapiCacheTTL);
-    // 判断是否为stdio模式
-    this.isStdioMode = process.env.NODE_ENV === "cli" || process.argv.includes("--stdio");
-    
-    this.logger.info(`YapiMcpServer初始化，日志级别: ${yapiLogLevel}, 缓存TTL: ${yapiCacheTTL}分钟`);
-    
+
+    this.logger.info(`YapiMcpServer initialized, log level: ${yapiLogLevel}, cache TTL: ${yapiCacheTTL} minutes`);
+
     this.server = new McpServer({
-      name: "Yapi MCP Server",
-      version: "0.2.1",
+      name: "YApi MCP Server",
+      version: "1.0.0",
     });
 
     this.registerTools();
@@ -39,11 +32,11 @@ export class YapiMcpServer {
     try {
       // 检查缓存是否过期
       if (this.projectInfoCache.isCacheExpired()) {
-        this.logger.info('缓存已过期，将异步更新缓存数据');
+        this.logger.info('Cache expired, updating cache data asynchronously');
 
         // 异步加载最新的项目信息，不阻塞初始化过程
         this.asyncUpdateCache().catch(error => {
-          this.logger.error('异步更新缓存失败:', error);
+          this.logger.error('Failed to update cache asynchronously:', error);
         });
       } else {
         // 从缓存加载数据
@@ -56,21 +49,21 @@ export class YapiMcpServer {
             this.yapiService.getProjectInfoCache().set(id, info);
           });
 
-          this.logger.info(`已从缓存加载 ${cachedProjectInfo.size} 个项目信息`);
+          this.logger.info(`Loaded ${cachedProjectInfo.size} project info from cache`);
         } else {
           // 缓存为空，异步更新
-          this.logger.info('缓存为空，将异步更新缓存数据');
+          this.logger.info('Cache is empty, updating cache data asynchronously');
           this.asyncUpdateCache().catch(error => {
-            this.logger.error('异步更新缓存失败:', error);
+            this.logger.error('Failed to update cache asynchronously:', error);
           });
         }
       }
     } catch (error) {
-      this.logger.error('加载或检查缓存时出错:', error);
+      this.logger.error('Error loading or checking cache:', error);
 
       // 出错时也尝试异步更新缓存
       this.asyncUpdateCache().catch(err => {
-        this.logger.error('异步更新缓存失败:', err);
+        this.logger.error('Failed to update cache asynchronously:', err);
       });
     }
   }
@@ -81,22 +74,22 @@ export class YapiMcpServer {
    */
   private async asyncUpdateCache(): Promise<void> {
     try {
-      this.logger.debug('开始异步更新缓存数据');
+      this.logger.debug('Starting async cache update');
 
       // 加载最新的项目信息
       await this.yapiService.loadAllProjectInfo();
-      this.logger.debug(`已加载 ${this.yapiService.getProjectInfoCache().size} 个项目信息`);
+      this.logger.debug(`Loaded ${this.yapiService.getProjectInfoCache().size} project info`);
 
       // 更新缓存
       this.projectInfoCache.saveToCache(this.yapiService.getProjectInfoCache());
 
       // 加载所有项目的分类列表
       await this.yapiService.loadAllCategoryLists();
-      this.logger.debug('已加载所有项目的分类列表');
+      this.logger.debug('Loaded all project category lists');
 
-      this.logger.info('缓存数据已成功更新');
+      this.logger.info('Cache data updated successfully');
     } catch (error) {
-      this.logger.error('更新缓存数据失败:', error);
+      this.logger.error('Failed to update cache data:', error);
       throw error;
     }
   }
@@ -112,9 +105,9 @@ export class YapiMcpServer {
       },
       async ({ projectId, apiId }) => {
         try {
-          this.logger.info(`获取API接口: ${apiId}, 项目ID: ${projectId}`);
+          this.logger.info(`Getting API interface: ${apiId}, project ID: ${projectId}`);
           const apiInterface = await this.yapiService.getApiInterface(projectId, apiId);
-          this.logger.info(`成功获取API接口: ${apiInterface.title || apiId}`);
+          this.logger.info(`Successfully got API interface: ${apiInterface.title || apiId}`);
 
           // 格式化返回数据，使其更易于阅读
           const formattedResponse = {
@@ -146,7 +139,7 @@ export class YapiMcpServer {
             content: [{ type: "text", text: JSON.stringify(formattedResponse, null, 2) }],
           };
         } catch (error) {
-          this.logger.error(`获取API接口 ${apiId} 时出错:`, error);
+          this.logger.error(`Error getting API interface ${apiId}:`, error);
           return {
             content: [{ type: "text", text: `获取API接口出错: ${error}` }],
           };
@@ -304,9 +297,9 @@ export class YapiMcpServer {
           // 返回保存结果
           const resultApiId = response.data._id;
           return {
-            content: [{ 
-              type: "text", 
-              text: `接口${id ? '更新' : '新增'}成功！\n接口ID: ${resultApiId}\n接口名称: ${title}\n请求方法: ${method}\n接口路径: ${path}` 
+            content: [{
+              type: "text",
+              text: `接口${id ? '更新' : '新增'}成功！\n接口ID: ${resultApiId}\n接口名称: ${title}\n请求方法: ${method}\n接口路径: ${path}`
             }],
           };
         } catch (error) {
@@ -557,40 +550,7 @@ export class YapiMcpServer {
   }
 
   async connect(transport: Transport): Promise<void> {
-    this.logger.info("连接到传输层...");
     await this.server.connect(transport);
-    this.logger.info("服务器已连接，准备处理请求");
-  }
-
-  async startHttpServer(port: number): Promise<void> {
-    const app = express();
-
-    app.get("/sse", async (req: Request, res: Response) => {
-      this.logger.info("建立新的SSE连接");
-      this.sseTransport = new SSEServerTransport(
-        "/messages",
-        res as unknown as ServerResponse<IncomingMessage>,
-      );
-      await this.server.connect(this.sseTransport);
-    });
-
-    app.post("/messages", async (req: Request, res: Response) => {
-      if (!this.sseTransport) {
-        // Express types 可能与实际使用不匹配，直接使用
-        // @ts-ignore
-        res.sendStatus(400);
-        return;
-      }
-      await this.sseTransport.handlePostMessage(
-        req as unknown as IncomingMessage,
-        res as unknown as ServerResponse<IncomingMessage>,
-      );
-    });
-
-    app.listen(port, () => {
-      this.logger.info(`HTTP服务器监听端口 ${port}`);
-      this.logger.info(`SSE端点: http://localhost:${port}/sse`);
-      this.logger.info(`消息端点: http://localhost:${port}/messages`);
-    });
+    this.logger.info("YApi MCP Server connected successfully");
   }
 }

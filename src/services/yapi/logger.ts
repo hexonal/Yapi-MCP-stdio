@@ -21,10 +21,32 @@ const LOG_LEVEL_MAP: Record<string, LogLevel> = {
 };
 
 /**
+ * 日志级别名称映射
+ */
+const LOG_LEVEL_NAMES: Record<LogLevel, string> = {
+  [LogLevel.DEBUG]: 'DEBUG',
+  [LogLevel.INFO]: 'INFO',
+  [LogLevel.WARN]: 'WARN',
+  [LogLevel.ERROR]: 'ERROR',
+  [LogLevel.NONE]: 'NONE'
+};
+
+/**
  * 获取日志级别
  */
 export function getLogLevel(level: string): LogLevel {
   return LOG_LEVEL_MAP[level.toLowerCase()] ?? LogLevel.INFO;
+}
+
+/**
+ * 日志记录接口
+ */
+interface LogRecord {
+  timestamp: string;
+  level: string;
+  service: string;
+  message: string;
+  data?: any;
 }
 
 /**
@@ -33,53 +55,124 @@ export function getLogLevel(level: string): LogLevel {
 export class Logger {
   private readonly prefix: string;
   private readonly logLevel: LogLevel;
-  
+
   constructor(prefix: string, logLevel: LogLevel | string = LogLevel.INFO) {
     this.prefix = prefix;
     this.logLevel = typeof logLevel === 'string' ? getLogLevel(logLevel) : logLevel;
   }
-  
+
+  /**
+   * 创建日志记录
+   * @param level 日志级别
+   * @param message 日志消息
+   * @param data 附加数据
+   * @returns 日志记录对象
+   */
+  private createLogRecord(level: LogLevel, message: string, data?: any): LogRecord {
+    const record: LogRecord = {
+      timestamp: new Date().toISOString(),
+      level: LOG_LEVEL_NAMES[level],
+      service: this.prefix,
+      message
+    };
+
+    if (data !== undefined && data !== null) {
+      // 如果有附加数据，将其序列化
+      try {
+        if (data instanceof Error) {
+          // 特殊处理 Error 对象
+          record.data = {
+            name: data.name,
+            message: data.message,
+            stack: data.stack
+          };
+        } else if (typeof data === 'object') {
+          // 检查对象中是否有 Error 类型的属性
+          const processedData: any = {};
+          for (const [key, value] of Object.entries(data)) {
+            if (value instanceof Error) {
+              processedData[key] = {
+                name: value.name,
+                message: value.message,
+                stack: value.stack
+              };
+            } else {
+              processedData[key] = value;
+            }
+          }
+          record.data = processedData;
+        } else {
+          record.data = { args: data };
+        }
+      } catch (e) {
+        record.data = { serialization_error: String(data) };
+      }
+    }
+
+    return record;
+  }
+
+  /**
+   * 输出日志到控制台
+   * @param level 日志级别
+   * @param message 日志消息
+   * @param args 额外参数
+   */
+  private log(level: LogLevel, message: string, ...args: any[]): void {
+    if (this.logLevel <= level) {
+      const data = args.length > 0 ? (args.length === 1 ? args[0] : args) : undefined;
+      const record = this.createLogRecord(level, message, data);
+
+      const jsonOutput = JSON.stringify(record);
+
+      // 根据日志级别选择输出方法
+      switch (level) {
+        case LogLevel.ERROR:
+          console.error(jsonOutput);
+          break;
+        case LogLevel.WARN:
+          console.warn(jsonOutput);
+          break;
+        default:
+          console.log(jsonOutput);
+          break;
+      }
+    }
+  }
+
   /**
    * 输出调试日志
    * @param message 日志消息
    * @param args 额外参数
    */
   debug(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.DEBUG) {
-      console.log(`[DEBUG][${this.prefix}] ${message}`, ...args);
-    }
+    this.log(LogLevel.DEBUG, message, ...args);
   }
-  
+
   /**
    * 输出信息日志
    * @param message 日志消息
    * @param args 额外参数
    */
   info(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.INFO) {
-      console.log(`[INFO][${this.prefix}] ${message}`, ...args);
-    }
+    this.log(LogLevel.INFO, message, ...args);
   }
-  
+
   /**
    * 输出警告日志
    * @param message 日志消息
    * @param args 额外参数
    */
   warn(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.WARN) {
-      console.warn(`[WARN][${this.prefix}] ${message}`, ...args);
-    }
+    this.log(LogLevel.WARN, message, ...args);
   }
-  
+
   /**
    * 输出错误日志
    * @param message 日志消息
    * @param args 额外参数
    */
   error(message: string, ...args: any[]): void {
-    if (this.logLevel <= LogLevel.ERROR) {
-      console.error(`[ERROR][${this.prefix}] ${message}`, ...args);
-    }
+    this.log(LogLevel.ERROR, message, ...args);
   }
 } 

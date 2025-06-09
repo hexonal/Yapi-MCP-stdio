@@ -1,147 +1,112 @@
-import { config } from "dotenv";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+import { Logger, getLogLevel } from "./services/yapi/logger";
 
-// Load environment variables from .env file
-config();
-
+/**
+ * 服务器配置接口
+ */
 interface ServerConfig {
   yapiBaseUrl: string;
   yapiToken: string;
-  port: number;
   yapiCacheTTL: number; // 缓存时效，单位为分钟
-  yapiLogLevel: string; // 日志级别：debug, info, warn, error
-  configSources: {
-    yapiBaseUrl: "cli" | "env" | "default";
-    yapiToken: "cli" | "env" | "default";
-    port: "cli" | "env" | "default";
-    yapiCacheTTL: "cli" | "env" | "default";
-    yapiLogLevel: "cli" | "env" | "default";
-  };
+  yapiLogLevel: string; // 日志级别：debug, info, warn, error, none
 }
 
-function maskApiKey(key: string): string {
-  if (key.length <= 4) return "****";
-  return `****${key.slice(-4)}`;
-}
-
+/**
+ * CLI 参数接口
+ */
 interface CliArgs {
   "yapi-base-url"?: string;
   "yapi-token"?: string;
-  port?: number;
   "yapi-cache-ttl"?: number;
   "yapi-log-level"?: string;
+  stdio?: boolean;
 }
 
+/**
+ * 脱敏 API Key
+ */
+function maskApiKey(key: string): string {
+  if (key.length <= 8) return "*".repeat(key.length);
+  return key.substring(0, 4) + "*".repeat(key.length - 8) + key.substring(key.length - 4);
+}
+
+/**
+ * 获取服务器配置
+ * 优先级：CLI 参数 > 环境变量 > 默认值
+ */
 export function getServerConfig(): ServerConfig {
-  // Parse command line arguments
+  // 解析 CLI 参数
   const argv = yargs(hideBin(process.argv))
-    .options({
-      "yapi-base-url": {
-        type: "string",
-        description: "YApi服务器基础URL",
-      },
-      "yapi-token": {
-        type: "string",
-        description: "YApi服务器授权Token",
-      },
-      port: {
-        type: "number",
-        description: "Port to run the server on",
-      },
-      "yapi-cache-ttl": {
-        type: "number",
-        description: "YApi缓存有效期（分钟），默认10分钟",
-      },
-      "yapi-log-level": {
-        type: "string",
-        description: "YApi日志级别 (debug, info, warn, error)",
-        choices: ["debug", "info", "warn", "error"],
-      },
+    .option("yapi-base-url", {
+      type: "string",
+      description: "YApi base URL",
     })
-    .help()
+    .option("yapi-token", {
+      type: "string",
+      description: "YApi token (format: projectId:token,projectId2:token2)",
+    })
+    .option("yapi-cache-ttl", {
+      type: "number",
+      description: "Cache TTL in minutes",
+      default: 10,
+    })
+    .option("yapi-log-level", {
+      type: "string",
+      description: "Log level (debug, info, warn, error, none)",
+      default: "info",
+    })
+    .option("stdio", {
+      type: "boolean",
+      description: "Use stdio transport",
+      default: true,
+    })
     .parseSync() as CliArgs;
 
+  // 获取配置值（CLI 参数优先，然后是环境变量）
+  const yapiBaseUrl = argv["yapi-base-url"] || process.env.YAPI_BASE_URL;
+  const yapiToken = argv["yapi-token"] || process.env.YAPI_TOKEN;
+  const yapiCacheTTL = argv["yapi-cache-ttl"] || Number(process.env.YAPI_CACHE_TTL) || 10;
+  const yapiLogLevel = argv["yapi-log-level"] || process.env.YAPI_LOG_LEVEL || "info";
+
+  // 验证必需配置
+  if (!yapiBaseUrl) {
+    throw new Error("YApi base URL is required. Set YAPI_BASE_URL environment variable or use --yapi-base-url");
+  }
+
+  if (!yapiToken) {
+    throw new Error("YApi token is required. Set YAPI_TOKEN environment variable or use --yapi-token");
+  }
+
   const config: ServerConfig = {
-    yapiBaseUrl: "http://localhost:3000",
-    yapiToken: "",
-    port: 3333,
-    yapiCacheTTL: 10, // 默认缓存10分钟
-    yapiLogLevel: "info", // 默认日志级别
-    configSources: {
-      yapiBaseUrl: "default",
-      yapiToken: "default",
-      port: "default",
-      yapiCacheTTL: "default",
-      yapiLogLevel: "default",
-    },
+    yapiBaseUrl,
+    yapiToken,
+    yapiCacheTTL,
+    yapiLogLevel,
   };
 
+  // 创建临时 logger 用于输出配置信息
+  const logger = new Logger("CONFIG", getLogLevel(yapiLogLevel));
 
-  // Handle YAPI_BASE_URL
-  if (argv["yapi-base-url"]) {
-    config.yapiBaseUrl = argv["yapi-base-url"];
-    config.configSources.yapiBaseUrl = "cli";
-  } else if (process.env.YAPI_BASE_URL) {
-    config.yapiBaseUrl = process.env.YAPI_BASE_URL;
-    config.configSources.yapiBaseUrl = "env";
-  }
-
-  // Handle YAPI_TOKEN
-  if (argv["yapi-token"]) {
-    config.yapiToken = argv["yapi-token"];
-    config.configSources.yapiToken = "cli";
-  } else if (process.env.YAPI_TOKEN) {
-    config.yapiToken = process.env.YAPI_TOKEN;
-    config.configSources.yapiToken = "env";
-  }
-
-  // Handle PORT
-  if (argv.port) {
-    config.port = argv.port;
-    config.configSources.port = "cli";
-  } else if (process.env.PORT) {
-    config.port = parseInt(process.env.PORT, 10);
-    config.configSources.port = "env";
-  }
-
-  // Handle YAPI_CACHE_TTL
-  if (argv["yapi-cache-ttl"]) {
-    config.yapiCacheTTL = argv["yapi-cache-ttl"];
-    config.configSources.yapiCacheTTL = "cli";
-  } else if (process.env.YAPI_CACHE_TTL) {
-    const cacheTTL = parseInt(process.env.YAPI_CACHE_TTL, 10);
-    if (!isNaN(cacheTTL)) {
-      config.yapiCacheTTL = cacheTTL;
-      config.configSources.yapiCacheTTL = "env";
-    }
-  }
-
-  // Handle YAPI_LOG_LEVEL
-  if (argv["yapi-log-level"]) {
-    config.yapiLogLevel = argv["yapi-log-level"];
-    config.configSources.yapiLogLevel = "cli";
-  } else if (process.env.YAPI_LOG_LEVEL) {
-    const validLevels = ["debug", "info", "warn", "error"];
-    const logLevel = process.env.YAPI_LOG_LEVEL.toLowerCase();
-    if (validLevels.includes(logLevel)) {
-      config.yapiLogLevel = logLevel;
-      config.configSources.yapiLogLevel = "env";
-    }
-  }
-
-  // Log configuration sources
-  console.log("\nConfiguration:");
-  console.log(
-    `- YAPI_BASE_URL: ${config.yapiBaseUrl} (source: ${config.configSources.yapiBaseUrl})`,
-  );
-  console.log(
-    `- YAPI_TOKEN: ${config.yapiToken ? maskApiKey(config.yapiToken) : "未配置"} (source: ${config.configSources.yapiToken})`,
-  );
-  console.log(`- PORT: ${config.port} (source: ${config.configSources.port})`);
-  console.log(`- YAPI_CACHE_TTL: ${config.yapiCacheTTL} 分钟 (source: ${config.configSources.yapiCacheTTL})`);
-  console.log(`- YAPI_LOG_LEVEL: ${config.yapiLogLevel} (source: ${config.configSources.yapiLogLevel})`);
-  console.log(); // Empty line for better readability
+  logger.info("Server configuration:");
+  logger.info(`- YApi Base URL: ${yapiBaseUrl}`);
+  logger.info(`- YApi Token: ${maskApiKey(yapiToken)}`);
+  logger.info(`- Cache TTL: ${yapiCacheTTL} minutes`);
+  logger.info(`- Log Level: ${yapiLogLevel}`);
 
   return config;
+}
+
+/**
+ * 获取配置来源描述
+ */
+export function getConfigSources(): Record<string, string> {
+  const argv = yargs(hideBin(process.argv)).parseSync() as CliArgs;
+
+  return {
+    yapiBaseUrl: argv["yapi-base-url"] ? "CLI" : (process.env.YAPI_BASE_URL ? "ENV" : "DEFAULT"),
+    yapiToken: argv["yapi-token"] ? "CLI" : (process.env.YAPI_TOKEN ? "ENV" : "DEFAULT"),
+    yapiCacheTTL: argv["yapi-cache-ttl"] ? "CLI" : (process.env.YAPI_CACHE_TTL ? "ENV" : "DEFAULT"),
+    yapiLogLevel: argv["yapi-log-level"] ? "CLI" : (process.env.YAPI_LOG_LEVEL ? "ENV" : "DEFAULT"),
+  };
 }
