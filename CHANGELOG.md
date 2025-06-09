@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2025-06-09
+
+### 🐛 Fixed
+- **修复MCP协议冲突**：将日志输出从stdout改为stderr，避免干扰MCP协议的JSON-RPC通信
+  - 解决了结构化日志与MCP协议标准输出的冲突问题
+  - 确保MCP工具调用和协议通信正常工作
+  - 日志仍保持JSON格式，但输出到独立的stderr流
+
 ## [1.0.1] - 2025-06-09
 
 ### 🐛 Fixed
