@@ -125,18 +125,8 @@ export class Logger {
 
       const jsonOutput = JSON.stringify(record);
 
-      // 根据日志级别选择输出方法
-      switch (level) {
-        case LogLevel.ERROR:
-          console.error(jsonOutput);
-          break;
-        case LogLevel.WARN:
-          console.warn(jsonOutput);
-          break;
-        default:
-          console.log(jsonOutput);
-          break;
-      }
+      // 所有日志都输出到 stderr，避免与 MCP 协议的 stdout 通信冲突
+      process.stderr.write(jsonOutput + '\n');
     }
   }
 
